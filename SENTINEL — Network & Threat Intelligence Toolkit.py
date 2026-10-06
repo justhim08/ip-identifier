@@ -272,7 +272,7 @@ def main():
 			parser.error(str(error))
 		return
 
-	print("IP Finder, Passive OSINT, Router Audit, and TCP Port Scanner")
+	print("SENTINEL — Network & Threat Intelligence Toolkit")
 	print("Only scan systems you own or have permission to test.\n")
 
 	while True:

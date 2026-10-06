@@ -1,6 +1,6 @@
-# IP Finder, Passive OSINT, and File Extractor
+# SENTINEL — Network & Threat Intelligence Toolkit
 
-A Python command-line utility for resolving hosts, collecting passive public-source information about domains and IP addresses, extracting text and indicators from local documents, and checking TCP ports on authorized hosts.
+A Python command-line toolkit for authorized router auditing, nearby Wi-Fi discovery, passive OSINT, TCP port checks, and extracting indicators from local documents.
 
 ## Features
 
@@ -45,10 +45,10 @@ On Windows, `py -3 -m pip install -r requirements.txt` can be used instead. The 
 	```powershell
 	py -3 --version
 	py -3 -m pip install -r requirements.txt
-	py -3 "ip finder.py"
+	py -3 "SENTINEL — Network & Threat Intelligence Toolkit.py"
 	```
 
-	If `py` is unavailable but `python` works, use `python --version` and `python "ip finder.py"` instead.
+	If `py` is unavailable but `python` works, use `python --version` and `python "SENTINEL — Network & Threat Intelligence Toolkit.py"` instead.
 
 ### macOS
 
@@ -71,7 +71,7 @@ On Windows, `py -3 -m pip install -r requirements.txt` can be used instead. The 
 	```sh
 	python3 --version
 	python3 -m pip install -r requirements.txt
-	python3 "ip finder.py"
+	python3 "SENTINEL — Network & Threat Intelligence Toolkit.py"
 	```
 
 ### Linux
@@ -97,12 +97,12 @@ On Windows, `py -3 -m pip install -r requirements.txt` can be used instead. The 
 	```sh
 	python3 --version
 	python3 -m pip install -r requirements.txt
-	python3 "ip finder.py"
+	python3 "SENTINEL — Network & Threat Intelligence Toolkit.py"
 	```
 
 ## Use
 
-Run `python "ip finder.py"` (or `python3` on macOS/Linux) to open the interactive menu:
+Run `python "SENTINEL — Network & Threat Intelligence Toolkit.py"` (or `python3` on macOS/Linux) to open the interactive menu:
 
 1. Resolve a URL or hostname and display its IP addresses.
 2. Scan ports on an IP address you provide.
@@ -120,12 +120,12 @@ For a scan, select the common-port list, ports 1-1024, or enter comma-separated 
 The two report actions are also available without the interactive menu:
 
 ```sh
-python "ip finder.py" --osint https://example.com/path
-python "ip finder.py" --osint 8.8.8.8 --output ip-report.json
-python "ip finder.py" --extract report.pdf
-python "ip finder.py" --extract investigation.docx --output extracted.json
-python "ip finder.py" --router-audit 192.168.1.1 --network 192.168.1.0/24
-python "ip finder.py" --router-audit 192.168.1.1 --model "Example Router X1" --firmware "1.2.3" --output router-report.json
+python "SENTINEL — Network & Threat Intelligence Toolkit.py" --osint https://example.com/path
+python "SENTINEL — Network & Threat Intelligence Toolkit.py" --osint 8.8.8.8 --output ip-report.json
+python "SENTINEL — Network & Threat Intelligence Toolkit.py" --extract report.pdf
+python "SENTINEL — Network & Threat Intelligence Toolkit.py" --extract investigation.docx --output extracted.json
+python "SENTINEL — Network & Threat Intelligence Toolkit.py" --router-audit 192.168.1.1 --network 192.168.1.0/24
+python "SENTINEL — Network & Threat Intelligence Toolkit.py" --router-audit 192.168.1.1 --model "Example Router X1" --firmware "1.2.3" --output router-report.json
 ```
 
 OSINT lookups query public DNS-over-HTTPS, RDAP, reverse-DNS, and Certificate Transparency services as applicable. They do not fetch the target website, scan ports, or enumerate private/local IP addresses. Reports include source errors if a public service is unavailable; network access is required. These services can log lookup requests, so avoid submitting confidential targets.

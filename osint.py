@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 REQUEST_TIMEOUT = 10
 MAX_RESPONSE_BYTES = 3 * 1024 * 1024
-USER_AGENT = "ip-identifier/1.0 (passive OSINT lookup)"
+USER_AGENT = "SENTINEL/1.0 (passive OSINT lookup)"
 
 
 def normalize_target(value):

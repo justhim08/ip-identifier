@@ -24,7 +24,7 @@ HTTP_PORTS = {80: "http", 443: "https", 8080: "http", 8443: "https"}
 REQUEST_TIMEOUT = 0.5
 NVD_TIMEOUT = 10
 MAX_NVD_BYTES = 2 * 1024 * 1024
-USER_AGENT = "ip-identifier/1.0 (authorized router inventory)"
+USER_AGENT = "SENTINEL/1.0 (authorized router inventory)"
 ALLOWED_NETWORKS = (
 	ipaddress.ip_network("10.0.0.0/8"),
 	ipaddress.ip_network("172.16.0.0/12"),
