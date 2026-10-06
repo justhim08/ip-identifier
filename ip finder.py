@@ -76,15 +76,18 @@ def parse_ports(value):
 			if "-" in item:
 				start_text, end_text = item.split("-", maxsplit=1)
 				start, end = int(start_text), int(end_text)
-				if start > end:
+				if start < 1 or end > 65535 or start > end:
 					raise ValueError
 				ports.update(range(start, end + 1))
 			else:
-				ports.add(int(item))
+				port = int(item)
+				if not 1 <= port <= 65535:
+					raise ValueError
+				ports.add(port)
 	except ValueError as exc:
 		raise ValueError("Use port numbers and ranges like 22,80,8000-8010.") from exc
 
-	if not ports or min(ports) < 1 or max(ports) > 65535:
+	if not ports:
 		raise ValueError("Ports must be between 1 and 65535.")
 	return sorted(ports)
 
