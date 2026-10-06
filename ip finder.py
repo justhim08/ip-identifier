@@ -1,13 +1,19 @@
 """Resolve a URL to IP addresses and scan TCP ports on one host."""
 
+import argparse
 import csv
 import ipaddress
+import json
 import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from file_extractor import extract_file
+from osint import lookup_osint
+from router_audit import audit_router
+from wifi_discovery import discover_wifi_access_points, require_authorization_confirmation
 
 COMMON_PORTS = {
 	20: "FTP-data",
@@ -154,6 +160,16 @@ def save_results(address, results):
 	print(f"Saved results to {path.resolve()}")
 
 
+def display_report(report, output_path=None):
+	serialized = json.dumps(report, indent=2, ensure_ascii=False)
+	if output_path:
+		path = Path(output_path)
+		path.write_text(serialized + "\n", encoding="utf-8")
+		print(f"Saved report to {path.resolve()}")
+	else:
+		print(serialized)
+
+
 def scan_address(address):
 	ports = choose_ports()
 	timeout = ask_timeout()
@@ -181,8 +197,82 @@ def get_host_from_prompt():
 	return normalize_host(input("Enter a URL, hostname, or IP address: "))
 
 
+def safe_terminal_text(value):
+	return "".join(character if character.isprintable() else f"\\u{ord(character):04x}" for character in value)
+
+
+def run_wifi_router_audit():
+	access_points = discover_wifi_access_points()
+	print("\nNearby Wi-Fi access points (discovery only; no network has been joined):")
+	for index, access_point in enumerate(access_points, start=1):
+		ssid = safe_terminal_text(access_point.get("ssid") or "(hidden SSID)")
+		bssid = safe_terminal_text(access_point.get("bssid") or "(BSSID unavailable)")
+		signal = safe_terminal_text(access_point.get("signal", "unknown"))
+		security = safe_terminal_text(access_point.get("authentication", "unknown"))
+		print(f"{index}. {ssid} | {bssid} | signal {signal} | {security}")
+
+	selection = input("Choose an access point number, or press Enter to cancel: ").strip()
+	if not selection:
+		print("Wi-Fi selection cancelled.")
+		return
+	if not selection.isdigit() or not 1 <= int(selection) <= len(access_points):
+		raise ValueError("Choose one of the listed access point numbers.")
+	selected = access_points[int(selection) - 1]
+
+	print(
+		"\nOnly continue if this is your router or you have explicit permission to assess it. "
+		"Selecting a Wi-Fi name does not prove ownership or connect to that network."
+	)
+	require_authorization_confirmation(input('Type "I AM AUTHORIZED" to continue: '))
+	target = input("Enter the authorized router's private IP address: ").strip()
+	model = input("Router model (optional): ").strip() or None
+	firmware = input("Firmware version (optional): ").strip() or None
+	network = input("Authorized subnet in CIDR notation (optional): ").strip() or None
+	report = audit_router(target, model, firmware, network)
+	report["selected_wifi_access_point"] = {
+		"ssid": selected.get("ssid") or None,
+		"bssid": selected.get("bssid"),
+		"signal": selected.get("signal"),
+		"authentication": selected.get("authentication"),
+	}
+	output_path = input("Save report as JSON? Enter a file name, or leave blank: ").strip()
+	display_report(report, output_path or None)
+
+
 def main():
-	print("IP Finder and TCP Port Scanner")
+	parser = argparse.ArgumentParser(
+		description="Resolve hosts, run authorized TCP scans and router audits, "
+		"perform passive OSINT, and extract text and indicators from local files."
+	)
+	actions = parser.add_mutually_exclusive_group()
+	actions.add_argument("--osint", metavar="TARGET", help="create a passive OSINT report for a URL, hostname, or IP")
+	actions.add_argument("--extract", metavar="FILE", help="extract text and indicators from a local file")
+	actions.add_argument("--router-audit", metavar="IP", help="audit a private-network router you own or are authorized to assess")
+	parser.add_argument("--model", help="router model to look up in public vulnerability advisories")
+	parser.add_argument("--firmware", help="router firmware version to include in the advisory lookup")
+	parser.add_argument("--network", help="optional authorized subnet in CIDR notation, for example 192.168.1.0/24")
+	parser.add_argument("--output", metavar="JSON_FILE", help="write an OSINT, extraction, or router-audit report to a JSON file")
+	args = parser.parse_args()
+
+	if args.output and not (args.osint or args.extract or args.router_audit):
+		parser.error("--output can only be used with --osint, --extract, or --router-audit.")
+	if (args.model or args.firmware or args.network) and not args.router_audit:
+		parser.error("--model, --firmware, and --network can only be used with --router-audit.")
+
+	if args.osint or args.extract or args.router_audit:
+		try:
+			if args.osint:
+				report = lookup_osint(args.osint)
+			elif args.extract:
+				report = extract_file(args.extract)
+			else:
+				report = audit_router(args.router_audit, args.model, args.firmware, args.network)
+			display_report(report, args.output)
+		except (ValueError, RuntimeError, OSError) as error:
+			parser.error(str(error))
+		return
+
+	print("IP Finder, Passive OSINT, Router Audit, and TCP Port Scanner")
 	print("Only scan systems you own or have permission to test.\n")
 
 	while True:
@@ -190,7 +280,11 @@ def main():
 		print("1. Resolve a URL/hostname to IP addresses")
 		print("2. Scan TCP ports on an IP address")
 		print("3. Resolve a URL, then scan a selected IP")
-		print("4. Exit")
+		print("4. Passive OSINT report for a URL/hostname/IP")
+		print("5. Extract text and indicators from a local file")
+		print("6. Authorized private-network router audit")
+		print("7. Discover nearby Wi-Fi and audit an authorized router")
+		print("8. Exit")
 		choice = input("Choose an option: ").strip()
 
 		try:
@@ -216,11 +310,29 @@ def main():
 					raise ValueError("Choose one of the listed address numbers.")
 				scan_address(addresses[int(selection) - 1])
 			elif choice == "4":
+				report = lookup_osint(input("Enter a URL, hostname, or IP address: "))
+				output_path = input("Save report as JSON? Enter a file name, or leave blank: ").strip()
+				display_report(report, output_path or None)
+			elif choice == "5":
+				report = extract_file(input("Enter the path to a local file: ").strip())
+				output_path = input("Save report as JSON? Enter a file name, or leave blank: ").strip()
+				display_report(report, output_path or None)
+			elif choice == "6":
+				target = input("Enter the router's private-network IP address: ").strip()
+				model = input("Router model (optional, from its label/admin page): ").strip() or None
+				firmware = input("Firmware version (optional, from its admin page): ").strip() or None
+				network = input("Authorized subnet in CIDR notation (optional): ").strip() or None
+				report = audit_router(target, model, firmware, network)
+				output_path = input("Save report as JSON? Enter a file name, or leave blank: ").strip()
+				display_report(report, output_path or None)
+			elif choice == "7":
+				run_wifi_router_audit()
+			elif choice == "8":
 				print("Goodbye.")
 				return
 			else:
-				print("Choose 1, 2, 3, or 4.")
-		except (ValueError, socket.gaierror, OSError) as error:
+				print("Choose a number from 1 to 8.")
+		except (ValueError, RuntimeError, socket.gaierror, OSError) as error:
 			print(f"Error: {error}")
 
 
