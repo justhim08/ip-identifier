@@ -1,4 +1,4 @@
-"""Compatibility launcher for the pre-package SENTINEL script."""
+"""Legacy compatibility launcher; use ``python -m sentinel`` for new installs."""
 
 import sys
 from pathlib import Path

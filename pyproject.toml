@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentinel-network-toolkit"
+version = "0.2.0"
+description = "Network security assessment and threat intelligence toolkit"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+dependencies = [
+    "pypdf>=5.0,<7.0",
+    "python-docx>=1.1.2,<2.0",
+    "tomli>=2.0,<3.0; python_version < '3.11'",
+]
+
+[project.scripts]
+sentinel = "sentinel.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

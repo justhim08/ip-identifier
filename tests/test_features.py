@@ -4,14 +4,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from file_extractor import _extract_indicators, extract_file
-from osint import lookup_osint, normalize_target
-from router_audit import ROUTER_TCP_PORTS, audit_router, _validate_router_target
-from wifi_discovery import (
+from sentinel.files.extractor import _extract_indicators, extract_file
+from sentinel.network.inventory import _parse_neighbors, collect_local_inventory
+from sentinel.network.scanner import parse_ports
+from sentinel.network.services import identify_service
+from sentinel.network.wifi import (
 	discover_wifi_access_points,
 	parse_windows_networks,
 	require_authorization_confirmation,
 )
+from sentinel.osint.intelligence import lookup_osint, normalize_target
+from sentinel.reports.renderer import export_report, render_report, resolve_format
+from sentinel.router.audit import ROUTER_TCP_PORTS, audit_router, _validate_router_target
 
 
 class OsintTests(unittest.TestCase):
@@ -27,14 +31,23 @@ class OsintTests(unittest.TestCase):
 			normalize_target("https://[2001:4860:4860::8888%25eth0]/")
 
 	def test_domain_lookup_contains_sources(self):
-		with patch("osint._rdap_lookup", return_value={"name": "Example"}), patch(
-			"osint._dns_lookup", return_value={"status": 0, "answers": []}
-		), patch("osint._certificate_names", return_value={"count": 0, "names": [], "truncated": False}):
+		with patch("sentinel.osint.intelligence._rdap_lookup", return_value={"name": "Example"}), patch(
+			"sentinel.osint.intelligence._dns_lookup", return_value={"status": 0, "answers": []}
+		), patch("sentinel.osint.intelligence._certificate_names", return_value={"count": 0, "names": [], "truncated": False}):
 			report = lookup_osint("example.com")
 
 		self.assertEqual(report["type"], "domain")
-		self.assertEqual(set(report["sources"]["dns"]), {"A", "AAAA", "MX", "NS", "TXT", "CAA"})
+		self.assertEqual(set(report["sources"]["dns"]), {"A", "AAAA", "CNAME", "MX", "NS", "TXT", "CAA"})
 		self.assertIn("certificate_transparency", report["sources"])
+
+	def test_ip_lookup_includes_passive_ip_intelligence(self):
+		with patch("sentinel.osint.intelligence._rdap_lookup", return_value={"name": "Example"}), patch(
+			"sentinel.osint.intelligence._dns_lookup", return_value={"status": 0, "answers": []}
+		), patch("sentinel.osint.intelligence._ip_intelligence", return_value={"ip": "8.8.8.8", "asn": 15169}):
+			report = lookup_osint("8.8.8.8")
+
+		self.assertIn("reverse_dns", report["sources"])
+		self.assertEqual(report["sources"]["ip_intelligence"]["asn"], 15169)
 
 
 class FileExtractionTests(unittest.TestCase):
@@ -131,8 +144,8 @@ class RouterAuditTests(unittest.TestCase):
 			_validate_router_target("192.168.1.1", "192.168.2.0/24")
 
 	def test_audit_scans_only_fixed_tcp_ports_and_collects_advisories(self):
-		with patch("router_audit._probe_tcp", return_value="closed") as probe, patch(
-			"router_audit._nvd_advisories", return_value={"status": "candidates", "results": []}
+		with patch("sentinel.router.audit._probe_tcp", return_value="closed") as probe, patch(
+			"sentinel.router.audit._nvd_advisories", return_value={"status": "candidates", "results": []}
 		):
 			report = audit_router("192.168.1.1", "Example Router", "1.2.3")
 
@@ -147,9 +160,9 @@ class RouterAuditTests(unittest.TestCase):
 			self.assertEqual(str(address), "192.168.1.1")
 			return "open" if port == 80 else "closed"
 
-		with patch("router_audit._probe_tcp", side_effect=status_for_port), patch(
-			"router_audit._http_head", return_value={"status_code": 200}
-		) as head, patch("router_audit._nvd_advisories", return_value={"status": "not_requested"}):
+		with patch("sentinel.router.audit._probe_tcp", side_effect=status_for_port), patch(
+			"sentinel.router.audit._http_head", return_value={"status_code": 200}
+		) as head, patch("sentinel.router.audit._nvd_advisories", return_value={"status": "not_requested"}):
 			report = audit_router("192.168.1.1")
 
 		head.assert_called_once()
@@ -202,8 +215,8 @@ class WifiDiscoveryTests(unittest.TestCase):
 
 	def test_discovery_runs_only_the_windows_netsh_query(self):
 		result = type("CommandResult", (), {"returncode": 0, "stderr": "", "stdout": "SSID 1 : Lab\n    BSSID 1 : 00:11:22:33:44:55\n"})()
-		with patch("wifi_discovery.platform.system", return_value="Windows"), patch(
-			"wifi_discovery.subprocess.run", return_value=result
+		with patch("sentinel.network.wifi.platform.system", return_value="Windows"), patch(
+			"sentinel.network.wifi.subprocess.run", return_value=result
 		) as run:
 			access_points = discover_wifi_access_points()
 
@@ -211,9 +224,81 @@ class WifiDiscoveryTests(unittest.TestCase):
 		self.assertEqual(run.call_args.args[0], ["netsh", "wlan", "show", "networks", "mode=bssid"])
 
 	def test_discovery_rejects_unsupported_platform(self):
-		with patch("wifi_discovery.platform.system", return_value="Linux"):
+		with patch("sentinel.network.wifi.platform.system", return_value="Linux"):
 			with self.assertRaisesRegex(RuntimeError, "requires Windows"):
 				discover_wifi_access_points()
+
+
+class NetworkInventoryTests(unittest.TestCase):
+	def test_parse_neighbor_cache_for_ipv4_and_ipv6(self):
+		neighbors = _parse_neighbors(
+			"  192.168.1.1          aa-bb-cc-dd-ee-ff     dynamic\n"
+			"fe80::1 dev wlan0 lladdr 00:11:22:33:44:55 REACHABLE\n"
+		)
+
+		self.assertEqual(len(neighbors), 2)
+		self.assertEqual(neighbors[0]["ip"], "192.168.1.1")
+		self.assertEqual(neighbors[0]["mac"], "aa:bb:cc:dd:ee:ff")
+		self.assertEqual(neighbors[1]["ip"], "fe80::1")
+
+	def test_collect_local_inventory_uses_read_only_cache_functions(self):
+		with patch("sentinel.network.inventory.platform.system", return_value="Windows"), patch(
+			"sentinel.network.inventory._windows_inventory",
+			return_value=("192.168.1.1", [{"ip": "192.168.1.20", "mac": None, "state": "dynamic"}]),
+		), patch(
+			"sentinel.network.inventory._get_local_interfaces",
+			return_value=[{
+				"name": "Ethernet",
+				"addresses": [{"address": "192.168.1.20", "ip_version": 4, "network": "192.168.1.0/24"}],
+				"mac": "aa:bb:cc:dd:ee:ff",
+				"vendor": None,
+			}],
+		):
+			report = collect_local_inventory()
+
+		self.assertEqual(report["default_gateway"], "192.168.1.1")
+		self.assertEqual(len(report["neighbors"]), 1)
+		self.assertIn("CACHED LOCAL NEIGHBOR SNAPSHOT", report["scope"])
+		self.assertEqual(report["interfaces"][0]["name"], "Ethernet")
+		self.assertEqual(report["neighbor_snapshot_type"], "CACHED LOCAL NEIGHBOR SNAPSHOT")
+
+
+class NetworkServiceTests(unittest.TestCase):
+	def test_known_service_uses_local_port_mapping(self):
+		self.assertEqual(identify_service("192.168.1.1", 22, "closed")["name"], "SSH")
+
+	def test_open_http_service_uses_header_only_identification(self):
+		with patch("sentinel.network.services._http_head", return_value={"status_code": 200, "headers": {"server": "test"}}) as head:
+			service = identify_service("192.168.1.1", 80, "open")
+
+		self.assertEqual(service["name"], "HTTP")
+		self.assertEqual(service["http"]["status_code"], 200)
+		head.assert_called_once()
+
+
+class ScannerTests(unittest.TestCase):
+	def test_parse_ports_preserves_valid_port_ranges(self):
+		self.assertEqual(parse_ports("22,80,8000-8002"), [22, 80, 8000, 8001, 8002])
+
+
+class ReportTests(unittest.TestCase):
+	def test_renders_json_csv_and_human_readable(self):
+		report = {"target": "192.168.1.1", "services": {"80": {"name": "HTTP"}}}
+
+		self.assertIn('"target": "192.168.1.1"', render_report(report, "json"))
+		csv_report = render_report(report, "csv")
+		self.assertIn("services.80.name,HTTP", csv_report)
+		self.assertIn("SENTINEL", render_report(report, "txt"))
+		self.assertEqual(resolve_format("report.csv"), "csv")
+		self.assertEqual(resolve_format(None, "txt"), "txt")
+
+	def test_exports_to_requested_file(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "report.txt"
+			text = export_report({"status": "ok"}, path)
+
+			self.assertEqual(path.read_text(encoding="utf-8"), text)
+			self.assertIn("Status", text)
 
 
 if __name__ == "__main__":

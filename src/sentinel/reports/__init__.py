@@ -1,0 +1,1 @@
+"""Structured SENTINEL report rendering."""

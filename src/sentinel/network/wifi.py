@@ -1,4 +1,4 @@
-"""Read nearby Wi-Fi access-point advertisements on Windows."""
+"""List nearby Windows Wi-Fi access points without joining or probing them."""
 
 import platform
 import re
