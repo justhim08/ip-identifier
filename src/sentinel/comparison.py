@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
@@ -79,7 +80,8 @@ def create_baseline(report: Mapping[str, Any], baseline_id: Optional[str] = None
     source = copy.deepcopy(dict(report))
     target = str(source.get("target") or source.get("assessment", {}).get("target") or "UNKNOWN").strip() or "UNKNOWN"
     findings = _iter_findings(source)
-    baseline_key = baseline_id or source.get("baseline_id") or _stable_hash(source.get("target") or "UNKNOWN")
+    baseline_key = baseline_id or source.get("baseline_id") or _stable_hash(source)
+    timestamp_value = source.get("timestamp") or source.get("generated_at") or "UNKNOWN"
     return Baseline(
         baseline_id=str(baseline_key),
         target=target,
@@ -88,9 +90,9 @@ def create_baseline(report: Mapping[str, Any], baseline_id: Optional[str] = None
         findings=findings,
         metadata={
             "target": target,
-            "assessment_timestamp": source.get("timestamp") or source.get("generated_at") or None,
-            "recorded_at": source.get("timestamp") or source.get("generated_at") or None,
-            "source_report": source.get("source_report") if isinstance(source.get("source_report"), dict) else None,
+            "assessment_timestamp": timestamp_value,
+            "recorded_at": timestamp_value,
+            "source_report": source.get("source_report") if isinstance(source.get("source_report"), dict) else "UNKNOWN",
         },
         comparison_metadata={
             "normalization_version": "1.0",
@@ -313,8 +315,8 @@ def _canonical_text(value: Any) -> str:
 
 
 def _stable_hash(value: Any) -> str:
-    content = repr(_normalize_value(value)).encode("utf-8")
-    return f"baseline-{abs(hash(content)) % 10_000_000:08d}"
+    digest = hashlib.sha256(json.dumps(_normalize_value(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+    return f"baseline-{digest}"
 
 
 def _iter_findings(report: Mapping[str, Any]) -> List[Dict[str, Any]]:
@@ -470,18 +472,41 @@ def _rationale_for_change(previous: Mapping[str, Any], current: Mapping[str, Any
 
 
 def _missing_finding_status(baseline_finding: Mapping[str, Any], current_report: Mapping[str, Any]) -> str:
+    """Treat missing findings conservatively: only claim resolution when explicit negative evidence is present."""
     port = baseline_finding.get("port")
     service = baseline_finding.get("service")
     current_service_map = _service_port_map(current_report)
-    if port is not None and str(port) in current_service_map:
-        return "RESOLVED"
-    if service and current_report.get("services") and str(service).lower() not in {str(item).lower() for item in current_report.get("services", [])}:
+
+    if port is not None:
+        port_key = str(port)
+        if port_key in current_service_map:
+            service_state = current_service_map[port_key].get("state") if isinstance(current_service_map[port_key], Mapping) else None
+            if isinstance(service_state, str) and service_state.lower() in {"closed", "not_observed", "filtered", "disabled", "offline"}:
+                return "RESOLVED"
+            if isinstance(service_state, str) and service_state.lower() in {"open", "listen", "observed"}:
+                return "NOT_OBSERVED"
+
+    service_values = []
+    for container in (current_report.get("services"), current_report.get("observed_services"), current_report.get("tcp_services")):
+        if isinstance(container, dict):
+            service_values.extend(str(item).lower() for item in container.values())
+        elif isinstance(container, list):
+            for item in container:
+                if isinstance(item, str):
+                    service_values.append(item.lower())
+                elif isinstance(item, Mapping):
+                    service_values.append(str(item.get("service") or item.get("name") or "").lower())
+
+    if service and service.lower() in service_values:
         return "NOT_OBSERVED"
-    if port is not None and current_report.get("services") and str(port) not in {str(item).lower() for item in current_report.get("services", [])}:
+
+    if port is not None and str(port) in {str(k).lower() for k in current_service_map.keys()}:
         return "NOT_OBSERVED"
-    if not current_report.get("findings") and not current_report.get("risk_assessments") and not current_report.get("services"):
+
+    if not current_report.get("findings") and not current_report.get("risk_assessments") and not current_report.get("services") and not current_report.get("observed_services"):
         return "NOT_OBSERVED"
-    return "RESOLVED"
+
+    return "NOT_OBSERVED"
 
 
 def _service_port_map(report: Mapping[str, Any]) -> Dict[str, Any]:
