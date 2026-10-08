@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
+from .baseline import compare_reports, create_baseline
 from .config import (
 	DEFAULT_PORTS,
 	ConfigurationError,
@@ -95,6 +96,8 @@ def build_parser() -> argparse.ArgumentParser:
 			"  inventory     View local network information without probing\n"
 			"  file          Perform static local file/IOC analysis\n"
 			"  assess        Score findings in a saved report without new scans\n"
+			"  baseline      Save or manage historical comparison baselines\n"
+			"  compare       Compare a baseline against a current SENTINEL assessment\n"
 			"  report        Render an existing JSON report as JSON, CSV, or text\n"
 			"  settings      Show the effective configuration\n\n"
 			"Examples (use scan only for authorized targets):\n"
@@ -191,6 +194,30 @@ def build_parser() -> argparse.ArgumentParser:
 		default="unknown",
 		help="explicitly supplied target exposure context (default: unknown)",
 	)
+
+	baseline_parser = commands.add_parser(
+		"baseline",
+		help="save or manage historical comparison baselines",
+		description=(
+			"Create an explicit baseline from a saved SENTINEL report so later assessments can be compared without "
+			"mutating the original report data."
+		),
+	)
+	baseline_subparsers = baseline_parser.add_subparsers(dest="baseline_command")
+	baseline_save_parser = baseline_subparsers.add_parser("save", help="save a structured comparison baseline")
+	_add_common_options(baseline_save_parser)
+	baseline_save_parser.add_argument("path", help="path to a saved SENTINEL JSON report")
+
+	compare_parser = commands.add_parser(
+		"compare",
+		help="compare a saved baseline with a current assessment",
+		description=(
+			"Compare a historical baseline to a newer SENTINEL report while preserving the original source data."
+		),
+	)
+	_add_common_options(compare_parser)
+	compare_parser.add_argument("baseline_path", help="path to the baseline JSON file")
+	compare_parser.add_argument("current_path", help="path to the current SENTINEL JSON report")
 
 	inventory_parser = commands.add_parser("inventory", help="read local gateway and cached neighbor information")
 	_add_common_options(inventory_parser)
@@ -343,6 +370,20 @@ def run_assessment(path: str, exposure: str = "unknown") -> Dict[str, Any]:
 		exposure=exposure_values[exposure],
 		exposure_source="operator-provided context" if exposure != "unknown" else "not supplied",
 	)
+
+
+def run_baseline_save(path: str) -> Dict[str, Any]:
+	"""Save an explicit baseline from an existing SENTINEL report."""
+	report = load_report(path)
+	baseline = create_baseline(report)
+	return baseline.to_dict()
+
+
+def run_compare(baseline_path: str, current_path: str) -> Dict[str, Any]:
+	"""Compare a saved baseline against a current saved report."""
+	baseline = load_report(baseline_path)
+	current = load_report(current_path)
+	return compare_reports(baseline, current)
 
 
 def _effective_output_path(
@@ -606,6 +647,12 @@ def _dispatch(args: argparse.Namespace, config: SentinelConfig, parser: argparse
 		report = run_file_analysis(args.path)
 	elif args.command == "assess":
 		report = run_assessment(args.path, args.exposure)
+	elif args.command == "baseline":
+		if getattr(args, "baseline_command", None) != "save":
+			parser.error("baseline requires a subcommand such as 'save'.")
+		report = run_baseline_save(args.path)
+	elif args.command == "compare":
+		report = run_compare(args.baseline_path, args.current_path)
 	elif args.command == "inventory":
 		report = run_inventory()
 	elif args.command == "report":

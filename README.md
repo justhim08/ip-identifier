@@ -129,6 +129,17 @@ Network scanning is intended only for targets you own or have explicit permissio
 
 The `report` command reads a previously saved SENTINEL JSON report and renders it as JSON, CSV, or readable text. A trailing slash on `--output` means “save into this directory” and generates a dated filename. Otherwise `--output` is a file path. Relative file outputs are placed under the configured report directory.
 
+### Historical baselines and posture comparison
+
+SENTINEL can create a deterministic comparison baseline from a saved assessment and compare it to a later report without mutating either source report. This is useful for measuring posture changes while preserving evidence and provenance.
+
+```sh
+sentinel baseline save assessment.json --output baseline.json
+sentinel compare baseline.json current-assessment.json --output-format json
+```
+
+The comparison output includes new, changed, resolved, not-observed, and unchanged findings, plus a structured summary of score/risk deltas and overall posture change. The comparison logic is deterministic and intentionally conservative: it does not infer compromise or remediation from a missing observation without sufficient evidence.
+
 The original script launchers and option-style commands remain available for compatibility:
 
 ```sh

@@ -1,6 +1,6 @@
-"""SENTINEL Network Security Assessment & Threat Intelligence Toolkit."""
+"""Baseline and comparison helpers for historical posture tracking."""
 
-from .baseline import (
+from .comparison import (
     Baseline,
     ComparisonChange,
     ComparisonResult,
@@ -10,8 +10,6 @@ from .baseline import (
     normalize_assessment,
     normalize_finding,
 )
-
-__version__ = "0.2.0"
 
 __all__ = [
     "Baseline",

@@ -13,6 +13,7 @@ This project follows semantic versioning.
 - Provenance-preserving passive intelligence records, evidence-backed relationships, normalized NVD CVE data, and conservative product/version correlation through `intel` and `cve` commands.
 - Structured local artifact analysis with signature-aware identification, streaming identification hashes, bounded PDF/DOCX extraction, normalized indicators, metadata evidence, conservative findings, and JSON/CSV/text reporting through `file`.
 - Deterministic risk assessment of saved report findings through `assess`, preserving source evidence and provenance while adding confidence-aware scores, priorities, aggregation, and JSON/CSV/text summaries.
+- Historical baseline capture and comparison through `baseline save` and `compare`, enabling deterministic detection of new, changed, resolved, and not-observed findings without mutating the source reports.
 
 ### Changed
 
