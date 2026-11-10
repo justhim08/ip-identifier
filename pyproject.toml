@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
 dependencies = [
-    "pypdf>=5.0,<7.0",
+    "pypdf>=5.0,<8.0",
     "python-docx>=1.1.2,<2.0",
     "tomli>=2.0,<3.0; python_version < '3.11'",
 ]
